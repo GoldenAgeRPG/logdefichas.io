@@ -84,9 +84,17 @@
                 <div class="col"><input type="text" id="inp-date" placeholder="DD/MM/AAAA" oninput="upd()"></div>
             </div>
             
-            <label style="margin-top:10px;">Fonte da Mudança</label>
+            <label style="margin-top:10px;">Fonte da Mudança (Principal)</label>
             <input type="text" id="inp-source" placeholder="Ex: Relatório Missão 01" oninput="upd()">
             <input type="text" id="inp-source-link" placeholder="Link do Tópico" style="margin-top:5px;" oninput="upd()">
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+               <label>Links Comprobatórios Adicionais</label>
+               <button class="btn btn-secondary" style="width:auto; padding:2px 8px; font-size:0.7em;" onclick="addLink()">+ Link</button>
+            </div>
+            <div id="links-list" class="dynamic-list" style="margin-top:5px;"></div>
           </div>
 
           <div>
@@ -126,6 +134,7 @@
   let state = {
     char: "", charLink: "", date: new Date().toLocaleDateString('pt-BR'),
     source: "", sourceLink: "",
+    links: [], // { title, url } NOVO
     stats: [], // {name, oldVal, newVal}
     blocks: [] // {type, title, content}
   };
@@ -143,6 +152,38 @@
     
     renderPreview();
     generateCode();
+  }
+
+  // --- Gerenciamento de Links Comprobatórios (NOVO) ---
+  function addLink(render = true) {
+    state.links.push({ title: "", url: "" });
+    if(render) { renderLinksInputs(); upd(); }
+  }
+  
+  function removeLink(index) {
+    state.links.splice(index, 1);
+    renderLinksInputs();
+    upd();
+  }
+
+  function updateLink(index, field, value) {
+    state.links[index][field] = value;
+    upd();
+  }
+
+  function renderLinksInputs() {
+    const container = document.getElementById('links-list');
+    container.innerHTML = '';
+    state.links.forEach((link, idx) => {
+        const div = document.createElement('div');
+        div.className = 'dynamic-item';
+        div.innerHTML = `
+            <span class="btn-remove" onclick="removeLink(${idx})">✕</span>
+            <input type="text" placeholder="Descrição (ex: Compra Loja)" value="${link.title}" oninput="updateLink(${idx}, 'title', this.value)" style="margin-bottom:5px;">
+            <input type="text" placeholder="URL do Tópico" value="${link.url}" oninput="updateLink(${idx}, 'url', this.value)">
+        `;
+        container.appendChild(div);
+    });
   }
 
   // --- Gerenciamento de Stats (Grid) ---
@@ -250,6 +291,14 @@
             </div>
         </div>`;
     }
+    
+    // Constrói Lista de Links Extras
+    let extraLinksHTML = '';
+    state.links.forEach(l => {
+        if(l.title && l.url) {
+            extraLinksHTML += `<li><span class="label">Extra:</span><span class="value"><a href="${l.url}" target="_blank">${l.title}</a></span></li>`;
+        }
+    });
 
     // Constrói Blocos
     let blocksHTML = '';
@@ -261,7 +310,6 @@
                 <div class="log-text-content"><p>${b.content.replace(/\n/g, '<br>')}</p></div>
             </div>`;
         } else {
-            // Transforma linhas em lista para o Removido
             const items = b.content.split('\n').filter(l => l.trim() !== '').map(l => `<li style="padding-left: 0; margin-bottom: 8px;">${l}</li>`).join('');
             blocksHTML += `
             <div class="log-text-block remove">
@@ -284,6 +332,7 @@
                 <li><span class="label">Personagem:</span><span class="value"><a href="${state.charLink}" target="_blank">${state.char}</a></span></li>
                 <li><span class="label">Data da Mudança:</span><span class="value">${state.date}</span></li>
                 <li><span class="label">Fonte da Mudança:</span><span class="value"><a href="${state.sourceLink}" target="_blank">${state.source}</a></span></li>
+                ${extraLinksHTML}
             </ul>
             ${gridHTML}
             ${blocksHTML}
@@ -315,9 +364,11 @@
        document.getElementById('inp-source').value = "";
        document.getElementById('inp-source-link').value = "";
        state.stats = [];
+       state.links = [];
        state.blocks = [];
        addStat();
        renderStatsInputs();
+       renderLinksInputs();
        renderBlocksInputs();
        upd();
     }
