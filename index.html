@@ -54,6 +54,28 @@
     .preview-pane { background: #121212; overflow-y: auto; height: 100%; display: flex; justify-content: center; padding: 40px; box-sizing: border-box; }
     #preview-box { width: 100%; max-width: 800px; }
 
+    /* --- NOVOS MODAIS E TOASTS --- */
+    .modal-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.8); z-index: 1000; display: none;
+        justify-content: center; align-items: center; backdrop-filter: blur(3px);
+    }
+    .modal-box {
+        background: var(--ui-panel); border: 1px solid var(--ui-border);
+        padding: 25px; border-radius: 8px; width: 90%; max-width: 500px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: popIn 0.2s ease;
+    }
+    @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal-title { font-family: 'Rajdhani', sans-serif; font-size: 1.5em; color: var(--ui-accent); margin-bottom: 15px; text-transform: uppercase; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+    .toast {
+        position: fixed; top: 20px; right: 20px; background: var(--ui-success); color: #000;
+        padding: 12px 25px; border-radius: 4px; font-weight: bold; z-index: 2000;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3); transform: translateX(150%); transition: transform 0.3s ease;
+    }
+    .toast.show { transform: translateX(0); }
+
     @media (max-width: 900px) {
       .layout-grid { grid-template-columns: 1fr; display: block; overflow: auto; height: auto; }
       .editor-pane { height: auto; min-width: 100%; border-right: none; }
@@ -63,12 +85,38 @@
 </head>
 <body>
 
+  <div id="toast" class="toast">Código Copiado!</div>
+
+  <div id="confirm-modal" class="modal-overlay">
+      <div class="modal-box">
+          <div class="modal-title">Confirmar Ação</div>
+          <p id="confirm-msg">Tem certeza?</p>
+          <div class="modal-actions">
+              <button class="btn btn-secondary" style="width:auto;" onclick="closeModal('confirm-modal')">Cancelar</button>
+              <button id="confirm-yes-btn" class="btn btn-danger" style="width:auto;">Confirmar</button>
+          </div>
+      </div>
+  </div>
+
+  <div id="import-modal" class="modal-overlay">
+      <div class="modal-box" style="max-width: 600px;">
+          <div class="modal-title">Importar Log Existente</div>
+          <p style="font-size:0.9em; color:#ccc; margin-bottom:10px;">Cole o código HTML completo do log que deseja editar.</p>
+          <textarea id="import-area" rows="10" placeholder="<link ... <div class='log-container'>..."></textarea>
+          <div class="modal-actions">
+              <button class="btn btn-secondary" style="width:auto;" onclick="closeModal('import-modal')">Cancelar</button>
+              <button class="btn btn-primary" style="width:auto;" onclick="processImport()">Carregar Dados</button>
+          </div>
+      </div>
+  </div>
+
   <div class="layout-grid">
     <div class="editor-pane">
       <div class="editor-header">
         <h1>Registro de Modificação</h1>
         <div class="row" style="margin-top:10px;">
-          <button class="btn btn-secondary" style="padding:5px;" onclick="resetData()">Novo Log</button>
+          <button class="btn btn-primary" style="padding:5px;" onclick="openImportModal()">Importar Log</button>
+          <button class="btn btn-secondary" style="padding:5px;" onclick="confirmReset()">Novo Log</button>
         </div>
       </div>
       
@@ -134,16 +182,14 @@
   let state = {
     char: "", charLink: "", date: new Date().toLocaleDateString('pt-BR'),
     source: "", sourceLink: "",
-    links: [], // { title, url } NOVO
+    links: [], // { title, url }
     stats: [], // {name, oldVal, newVal}
     blocks: [] // {type, title, content}
   };
 
-  // Inicializa com 1 stat vazio para exemplo
   if(state.stats.length === 0) addStat(false);
 
   function upd() {
-    // Atualiza infos básicas
     state.char = document.getElementById('inp-char').value;
     state.charLink = document.getElementById('inp-char-link').value;
     state.date = document.getElementById('inp-date').value;
@@ -154,23 +200,139 @@
     generateCode();
   }
 
-  // --- Gerenciamento de Links Comprobatórios (NOVO) ---
+  /* --- MÓDULO DE IMPORTAÇÃO (NOVO) --- */
+  function openImportModal() {
+      document.getElementById('import-modal').style.display = 'flex';
+      document.getElementById('import-area').value = '';
+      document.getElementById('import-area').focus();
+  }
+
+  function processImport() {
+      const htmlCode = document.getElementById('import-area').value;
+      if (!htmlCode.trim()) return;
+
+      try {
+          // Parse do HTML
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(htmlCode, 'text/html');
+
+          // 1. Infos Básicas
+          const detailsList = doc.querySelectorAll('.log-details li');
+          if(detailsList.length > 0) {
+              const charAnchor = detailsList[0].querySelector('a');
+              if(charAnchor) {
+                  state.char = charAnchor.textContent;
+                  state.charLink = charAnchor.getAttribute('href');
+              }
+              
+              const dateSpan = detailsList[1].querySelector('.value');
+              if(dateSpan) state.date = dateSpan.textContent;
+
+              const sourceAnchor = detailsList[2].querySelector('a');
+              if(sourceAnchor) {
+                  state.source = sourceAnchor.textContent;
+                  state.sourceLink = sourceAnchor.getAttribute('href');
+              }
+          }
+
+          // 2. Links Extras
+          state.links = [];
+          doc.querySelectorAll('.log-details li').forEach(li => {
+              const label = li.querySelector('.label');
+              if(label && label.textContent.includes('Extra')) {
+                  const link = li.querySelector('a');
+                  if(link) {
+                      state.links.push({ title: link.textContent, url: link.getAttribute('href') });
+                  }
+              }
+          });
+
+          // 3. Stats Grid
+          state.stats = [];
+          const listDe = doc.querySelectorAll('.log-box.before li');
+          const listPara = doc.querySelectorAll('.log-box.after li');
+
+          listDe.forEach((itemDe, index) => {
+              // Formato esperado: "Nome: Valor"
+              const textDe = itemDe.textContent;
+              const splitDe = textDe.split(':');
+              const name = splitDe[0].trim();
+              const oldVal = splitDe.slice(1).join(':').trim(); // Caso o valor tenha :, junta de volta
+
+              let newVal = "";
+              if(listPara[index]) {
+                  const textPara = listPara[index].textContent;
+                  const splitPara = textPara.split(':');
+                  newVal = splitPara.slice(1).join(':').trim();
+              }
+
+              state.stats.push({ name, oldVal, newVal });
+          });
+
+          // 4. Blocos
+          state.blocks = [];
+          doc.querySelectorAll('.log-text-block').forEach(block => {
+              const titleEl = block.querySelector('.log-text-title');
+              // Remove as tags de status do título
+              let rawTitle = titleEl.textContent;
+              rawTitle = rawTitle.replace('[+ ADICIONADO]', '').replace('[- REMOVIDO]', '').trim();
+
+              const contentDiv = block.querySelector('.log-text-content');
+              
+              if(block.classList.contains('add')) {
+                  // Bloco de Adição (Parágrafo)
+                  const p = contentDiv.querySelector('p');
+                  // Converte <br> de volta para quebra de linha
+                  let content = p ? p.innerHTML.replace(/<br\s*\/?>/gi, '\n') : "";
+                  // Remove tags HTML se houver sobra
+                  content = content.replace(/<[^>]*>?/gm, ''); 
+                  
+                  state.blocks.push({ type: 'add', title: rawTitle, content: content });
+              } else {
+                  // Bloco de Remoção (Lista)
+                  const lis = contentDiv.querySelectorAll('li');
+                  let items = [];
+                  lis.forEach(li => items.push(li.textContent));
+                  state.blocks.push({ type: 'remove', title: rawTitle, content: items.join('\n') });
+              }
+          });
+
+          // Finalizar Importação
+          document.getElementById('inp-char').value = state.char;
+          document.getElementById('inp-char-link').value = state.charLink;
+          document.getElementById('inp-date').value = state.date;
+          document.getElementById('inp-source').value = state.source;
+          document.getElementById('inp-source-link').value = state.sourceLink;
+
+          renderLinksInputs();
+          renderStatsInputs();
+          renderBlocksInputs();
+          upd();
+          
+          closeModal('import-modal');
+          showToast("Log Importado com Sucesso!");
+
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao ler o código. Certifique-se de colar o HTML completo.");
+      }
+  }
+
+  /* --- LÓGICA DE UI --- */
+
   function addLink(render = true) {
     state.links.push({ title: "", url: "" });
     if(render) { renderLinksInputs(); upd(); }
   }
-  
   function removeLink(index) {
     state.links.splice(index, 1);
     renderLinksInputs();
     upd();
   }
-
   function updateLink(index, field, value) {
     state.links[index][field] = value;
     upd();
   }
-
   function renderLinksInputs() {
     const container = document.getElementById('links-list');
     container.innerHTML = '';
@@ -186,23 +348,19 @@
     });
   }
 
-  // --- Gerenciamento de Stats (Grid) ---
   function addStat(render = true) {
     state.stats.push({ name: "", oldVal: "", newVal: "" });
     if(render) { renderStatsInputs(); upd(); }
   }
-
   function removeStat(index) {
     state.stats.splice(index, 1);
     renderStatsInputs();
     upd();
   }
-
   function updateStat(index, field, value) {
     state.stats[index][field] = value;
     upd();
   }
-
   function renderStatsInputs() {
     const container = document.getElementById('stats-list');
     container.innerHTML = '';
@@ -221,24 +379,20 @@
     });
   }
 
-  // --- Gerenciamento de Blocos (Add/Remove) ---
   function addBlock(type) {
     state.blocks.push({ type: type, title: "", content: "" });
     renderBlocksInputs();
     upd();
   }
-
   function removeBlock(index) {
     state.blocks.splice(index, 1);
     renderBlocksInputs();
     upd();
   }
-
   function updateBlock(index, field, value) {
     state.blocks[index][field] = value;
     upd();
   }
-
   function renderBlocksInputs() {
     const container = document.getElementById('blocks-list');
     container.innerHTML = '';
@@ -260,11 +414,9 @@
     });
   }
 
-  // --- RENDERIZAR PREVIEW ---
   function renderPreview() {
     const p = document.getElementById('preview-box');
     
-    // Constrói listas do Grid
     let listDe = '';
     let listPara = '';
     let hasStats = false;
@@ -292,7 +444,6 @@
         </div>`;
     }
     
-    // Constrói Lista de Links Extras
     let extraLinksHTML = '';
     state.links.forEach(l => {
         if(l.title && l.url) {
@@ -300,7 +451,6 @@
         }
     });
 
-    // Constrói Blocos
     let blocksHTML = '';
     state.blocks.forEach(b => {
         if(b.type === 'add') {
@@ -354,11 +504,36 @@
   function copyCode() {
     document.getElementById('output-code').select();
     document.execCommand('copy');
-    alert("Copiado!");
+    showToast("Código Copiado com Sucesso!");
+  }
+
+  // --- FUNÇÕES DE CONTROLE DE MODAL/TOAST ---
+  function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function closeModal(id) {
+      document.getElementById(id).style.display = 'none';
+  }
+
+  function confirmReset() {
+      const modal = document.getElementById('confirm-modal');
+      const msg = document.getElementById('confirm-msg');
+      const btnYes = document.getElementById('confirm-yes-btn');
+      
+      msg.innerText = "Isso apagará todos os dados atuais. Deseja continuar?";
+      modal.style.display = 'flex';
+      
+      btnYes.onclick = function() {
+          resetData();
+          closeModal('confirm-modal');
+      }
   }
 
   function resetData() {
-    if(confirm("Limpar tudo?")) {
        document.getElementById('inp-char').value = "";
        document.getElementById('inp-char-link').value = "";
        document.getElementById('inp-source').value = "";
@@ -371,7 +546,6 @@
        renderLinksInputs();
        renderBlocksInputs();
        upd();
-    }
   }
 
   // Init
