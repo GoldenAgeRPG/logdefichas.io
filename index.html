@@ -76,10 +76,21 @@
     }
     .toast.show { transform: translateX(0); }
 
+    /* --- CONTROLES MOBILE --- */
+    .mobile-tabs { display: none; }
+
     @media (max-width: 900px) {
-      .layout-grid { grid-template-columns: 1fr; display: block; overflow: auto; height: auto; }
-      .editor-pane { height: auto; min-width: 100%; border-right: none; }
-      .preview-pane { min-height: 100vh; }
+      body { display: flex; flex-direction: column; }
+      .mobile-tabs { display: flex; background: #16161b; border-bottom: 2px solid var(--ui-accent); flex-shrink: 0; z-index: 50; }
+      .mobile-tab { flex: 1; padding: 15px; text-align: center; font-weight: 900; font-family: 'Rajdhani', sans-serif; text-transform: uppercase; color: var(--ui-dim); cursor: pointer; font-size: 1.1em; transition: 0.2s; }
+      .mobile-tab.active { color: var(--ui-accent); background: var(--ui-panel); }
+      
+      .layout-grid { display: block; flex: 1; height: auto; min-height: 0; }
+      .editor-pane { height: 100%; min-width: 100%; border-right: none; }
+      .preview-pane { height: 100%; min-width: 100%; padding: 20px; display: none; }
+      
+      .preview-pane.active-pane { display: flex; align-items: flex-start; overflow-y: auto; }
+      .editor-pane.hidden-pane { display: none !important; }
     }
   </style>
 </head>
@@ -108,6 +119,11 @@
               <button class="btn btn-primary" style="width:auto;" onclick="processImport()">Carregar Dados</button>
           </div>
       </div>
+  </div>
+
+  <div class="mobile-tabs">
+      <div class="mobile-tab active" onclick="switchMobileTab('editor')">Editor</div>
+      <div class="mobile-tab" onclick="switchMobileTab('preview')">Visualização</div>
   </div>
 
   <div class="layout-grid">
@@ -546,6 +562,25 @@
        renderLinksInputs();
        renderBlocksInputs();
        upd();
+  }
+
+  // --- FUNÇÃO PARA AS ABAS MOBILE ---
+  function switchMobileTab(tab) {
+      const editor = document.querySelector('.editor-pane');
+      const preview = document.querySelector('.preview-pane');
+      const tabs = document.querySelectorAll('.mobile-tab');
+
+      if (tab === 'editor') {
+          editor.classList.remove('hidden-pane');
+          preview.classList.remove('active-pane');
+          tabs[0].classList.add('active');
+          tabs[1].classList.remove('active');
+      } else {
+          editor.classList.add('hidden-pane');
+          preview.classList.add('active-pane');
+          tabs[0].classList.remove('active');
+          tabs[1].classList.add('active');
+      }
   }
 
   // Init
