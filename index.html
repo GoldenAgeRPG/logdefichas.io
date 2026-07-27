@@ -37,8 +37,22 @@
 
     /* Cards Dinâmicos */
     .dynamic-list { display: flex; flex-direction: column; gap: 10px; }
-    .dynamic-item { background: #25252e; border: 1px solid var(--ui-border); padding: 10px; border-radius: 4px; position: relative; }
+    .dynamic-item { background: #25252e; border: 1px solid var(--ui-border); padding: 10px 10px 10px 32px; border-radius: 4px; position: relative; transition: border-color 0.15s, box-shadow 0.15s; }
     .btn-remove { position: absolute; top: 5px; right: 5px; cursor: pointer; color: var(--ui-danger); font-size: 0.8em; font-weight: bold; }
+
+    /* Coluna lateral: alça de arraste + seleção */
+    .item-gutter { position: absolute; top: 0; left: 0; bottom: 0; width: 28px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; }
+    .drag-handle { cursor: grab; color: #5a5a66; font-size: 1.15em; line-height: 1; touch-action: none; user-select: none; transition: color 0.15s; }
+    .drag-handle:hover { color: var(--ui-accent); }
+    .drag-handle:active { cursor: grabbing; }
+
+    .item-select { appearance: none; -webkit-appearance: none; margin: 0; flex-shrink: 0; width: 15px; height: 15px; padding: 0; border: 1px solid #4a4a55; border-radius: 4px; background: #0a0a0d; cursor: pointer; position: relative; transition: background 0.15s, border-color 0.15s; }
+    .item-select:hover { border-color: var(--ui-accent); }
+    .item-select:checked { background: var(--ui-accent); border-color: var(--ui-accent); }
+    .item-select:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+    .dynamic-item.item-selected { border-color: var(--ui-accent); box-shadow: 0 0 0 1px rgba(168,85,247,0.25); }
+    .dynamic-item.dragging { opacity: 0.5; border-style: dashed; border-color: var(--ui-accent); }
 
     .stat-row { display: grid; grid-template-columns: 1fr 60px 60px; gap: 5px; align-items: center; }
     
@@ -336,6 +350,105 @@
 
   /* --- LÓGICA DE UI --- */
 
+  function gutterHTML(isSelected, arrName, idx) {
+    return `
+        <div class="item-gutter">
+            <span class="drag-handle" title="Arraste para reordenar">⠿</span>
+            <input type="checkbox" class="item-select" title="Selecionar para mover em grupo" ${isSelected ? 'checked' : ''} onclick="setSelected(${arrName}, ${idx}, this.checked)">
+        </div>`;
+  }
+
+  function setSelected(arr, idx, checked) {
+    if (!arr[idx]) return;
+    arr[idx]._selected = checked;
+    const item = document.querySelector(`#${arr === state.links ? 'links-list' : arr === state.stats ? 'stats-list' : 'blocks-list'} [data-idx="${idx}"]`);
+    if (item) item.classList.toggle('item-selected', checked);
+  }
+
+  /* --- ARRASTAR PARA REORDENAR (Pointer Events: funciona com mouse e toque) ---
+     Itens marcados com o checkbox viajam em bloco junto com o item arrastado. */
+  function getDragAfterElement(container, y) {
+    const items = [...container.querySelectorAll('.dynamic-item:not(.dragging)')];
+    return items.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+            return { offset, element: child };
+        }
+        return closest;
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  function setupSortable(containerId, arrGetter, renderFn) {
+    const container = document.getElementById(containerId);
+    let dragEls = [];   // bloco arrastado, em ordem
+    let snapshot = [];  // cópia do array no início do arraste (data-idx aponta para ela)
+
+    // Reposiciona o bloco inteiro antes de `afterEl` (ou no fim, se null).
+    function placeBlock(afterEl) {
+        const last = dragEls[dragEls.length - 1];
+        if (afterEl == null) {
+            if (last === container.lastElementChild) return;
+            dragEls.forEach(el => container.appendChild(el));
+        } else {
+            if (last.nextElementSibling === afterEl) return;
+            dragEls.forEach(el => container.insertBefore(el, afterEl));
+        }
+    }
+
+    function onPointerMove(e) {
+        if (!dragEls.length) return;
+        e.preventDefault();
+        placeBlock(getDragAfterElement(container, e.clientY));
+    }
+
+    function onPointerUp() {
+        if (!dragEls.length) return;
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        dragEls.forEach(el => el.classList.remove('dragging'));
+        dragEls = [];
+
+        // reconstrói o array a partir da ordem do DM.
+        const order = [...container.children]
+            .map(el => snapshot[Number(el.dataset.idx)])
+            .filter(Boolean);
+        const arr = arrGetter();
+        arr.length = 0;
+        arr.push(...order);
+        snapshot = [];
+
+        renderFn();
+        upd();
+    }
+
+    container.addEventListener('pointerdown', e => {
+        const handle = e.target.closest('.drag-handle');
+        if (!handle) return;
+        const item = handle.closest('.dynamic-item');
+        if (!item) return;
+        e.preventDefault();
+
+        snapshot = arrGetter().slice();
+        const dragObj = snapshot[Number(item.dataset.idx)];
+
+        // O bloco é a seleção inteira (se o item arrastado fizer parte dela) ou só ele.
+        const selectedEls = [...container.querySelectorAll('.dynamic-item')]
+            .filter(el => snapshot[Number(el.dataset.idx)]?._selected);
+        dragEls = (dragObj && dragObj._selected && selectedEls.length) ? selectedEls : [item];
+
+        dragEls.forEach(el => el.classList.add('dragging'));
+
+        // Junta o bloco na posição do item arrastado antes de começar a mover.
+        let anchor = item.nextElementSibling;
+        while (anchor && dragEls.includes(anchor)) anchor = anchor.nextElementSibling;
+        placeBlock(anchor);
+
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+    });
+  }
+
   function addLink(render = true) {
     state.links.push({ title: "", url: "" });
     if(render) { renderLinksInputs(); upd(); }
@@ -354,8 +467,10 @@
     container.innerHTML = '';
     state.links.forEach((link, idx) => {
         const div = document.createElement('div');
-        div.className = 'dynamic-item';
+        div.className = 'dynamic-item' + (link._selected ? ' item-selected' : '');
+        div.dataset.idx = idx;
         div.innerHTML = `
+            ${gutterHTML(link._selected, 'state.links', idx)}
             <span class="btn-remove" onclick="removeLink(${idx})">✕</span>
             <input type="text" placeholder="Descrição (ex: Compra Loja)" value="${link.title}" oninput="updateLink(${idx}, 'title', this.value)" style="margin-bottom:5px;">
             <input type="text" placeholder="URL do Tópico" value="${link.url}" oninput="updateLink(${idx}, 'url', this.value)">
@@ -382,8 +497,10 @@
     container.innerHTML = '';
     state.stats.forEach((stat, idx) => {
         const div = document.createElement('div');
-        div.className = 'dynamic-item';
+        div.className = 'dynamic-item' + (stat._selected ? ' item-selected' : '');
+        div.dataset.idx = idx;
         div.innerHTML = `
+            ${gutterHTML(stat._selected, 'state.stats', idx)}
             <span class="btn-remove" onclick="removeStat(${idx})">✕</span>
             <div class="stat-row">
                 <input type="text" placeholder="Atributo/Aptidão" value="${stat.name}" oninput="updateStat(${idx}, 'name', this.value)">
@@ -414,13 +531,15 @@
     container.innerHTML = '';
     state.blocks.forEach((block, idx) => {
         const div = document.createElement('div');
-        div.className = 'dynamic-item';
+        div.className = 'dynamic-item' + (block._selected ? ' item-selected' : '');
+        div.dataset.idx = idx;
         div.style.borderLeft = block.type === 'add' ? '3px solid #20c56d' : '3px solid #c52020';
-        
+
         const typeLabel = block.type === 'add' ? 'ADICIONADO (+)' : 'REMOVIDO (-)';
         const phContent = block.type === 'add' ? 'Texto descritivo...' : 'Itens removidos (um por linha)...';
-        
+
         div.innerHTML = `
+            ${gutterHTML(block._selected, 'state.blocks', idx)}
             <span class="btn-remove" onclick="removeBlock(${idx})">✕</span>
             <label style="color:${block.type === 'add' ? '#20c56d' : '#c52020'}">${typeLabel}</label>
             <input type="text" placeholder="Título da Seção (Ex: Técnicas)" value="${block.title}" oninput="updateBlock(${idx}, 'title', this.value)" style="margin-bottom:5px;">
@@ -586,6 +705,9 @@
   // Init
   document.getElementById('inp-date').value = state.date;
   renderStatsInputs();
+  setupSortable('links-list', () => state.links, renderLinksInputs);
+  setupSortable('stats-list', () => state.stats, renderStatsInputs);
+  setupSortable('blocks-list', () => state.blocks, renderBlocksInputs);
 </script>
 </body>
 </html>
